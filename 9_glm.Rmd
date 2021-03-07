@@ -1,0 +1,278 @@
+---
+title: "9_glm"
+author: "Nick Schultz"
+date: "3/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FAlSE}
+library(tidyverse)
+library(faux)
+```
+
+Y = mu + A + S(group)
+
+```{r}
+n_per_group <- 100
+mu <- 800
+effect <- 50
+error_sd <- 50
+trial_types <- c(congruent = -0.5,
+                 incongruent = 0.5)
+```
+
+```{r}
+dat <- tibble(
+  trial_type = rep(names(trial_types), each = n_per_group)
+) %>%
+  mutate(
+    trial_type.e = recode(trial_type, !!!trial_types),
+    error = rnorm(nrow(.), 0, error_sd),
+    RT = mu + (effect * trial_type.e) + error
+  )
+```
+
+```{r}
+ggplot(dat, aes(trial_type, RT)) +
+  geom_violin() +
+  geom_boxplot(width = 0.25)
+```
+
+```{r}
+my_lm <- lm(RT ~ trial_type.e, data = dat)
+
+summary(my_lm)
+```
+
+## Residuals
+
+```{r}
+res <- residuals(my_lm)
+
+ggplot(dat) +
+  geom_density(aes(res)) +
+  stat_function(fun = dnorm, args = list(mean = 0, sd = error_sd), color = "red")
+```
+
+```{r}
+ggplot(dat, aes(error, res, color = trial_type)) +
+  geom_abline(slope = 1) +
+  geom_point()
+```
+```{r}
+ggplot(dat) +
+  stat_function(aes(0), color = "grey60",
+                fun = dnorm, n = 101,
+                args = list(mean(0), sd = error_sd)) +
+  geom_density(aes(res, color = trial_type))
+```
+
+```{r}
+ggplot(dat) +
+  geom_abline(slope = 1) +
+  geom_point(aes(error, res, color = trial_type)) +
+  xlab("Model Residuals") +
+  ylab("Simulated Error")
+```
+
+```{r}
+lm_ignore_trial_type <- lm(RT ~ 1, data = dat)
+
+summary(lm_ignore_trial_type)
+```
+
+```{r}
+res2 <- residuals(lm_ignore_trial_type)
+
+ggplot(dat) +
+  geom_density(aes(res2)) +
+  stat_function(fun = dnorm, args = list(mean = 0, sd = error_sd), color = "red")
+```
+
+```{r}
+ggplot(dat) +
+  geom_abline(slope = 1) +
+  geom_point(aes(error, res2, color = trial_type)) +
+  xlab("Model Residuals") +
+  ylab("Simulated Error")
+```
+
+## Predict
+
+```{r}
+summary(my_lm)
+
+mu_est <- my_lm$coefficients[["(Intercept)"]]
+
+tt_est <- my_lm$coefficients[["trial_type.e"]]
+
+con_code <- trial_types[["congruent"]]
+incon_code <- trial_types[["incongruent"]]
+
+new_congruent_RT <- mu_est + tt_est * con_code
+new_inconruent_RT <- mu_est + tt_est * incon_code
+```
+
+```{r}
+predict(my_lm, newdata = tibble(trial_type.e = 0.5))
+predict(my_lm, newdata = tibble(trial_type.e = -0.5))
+predict(my_lm, newdata = tibble(trial_type.e = 0))
+predict(my_lm, newdata = tibble(trial_type.e = c(-0.5, 0.5)))
+
+
+
+```
+
+## Coding
+
+```{r}
+dat <- dat %>% mutate(
+  trial_type.sum = recode(trial_type, "congruent" = +1, 
+                          "incongruent" = -1),
+  trial_type.tr = recode(trial_type, "congruent" = 1,
+                         "incongruent" = 0))
+
+
+```
+
+```{r}
+tt_sum <- c("congruent" = +1,
+            "incongruent" = -1)
+tt_tr <- c("congruent" = 1,
+           "incongruent" = 0)
+dat <- dat %>% mutate(
+  trial_type.sum = recode(trial_type, !!!tt_sum),
+  trial_type.tr = recode(trial_type, !!!tt_tr)
+)
+```
+
+```{r}
+lm(RT ~ trial_type.e, data = dat)$coefficients
+```
+
+```{r}
+lm(RT ~ trial_type.sum, data = dat)$coefficients
+```
+
+```{r}
+lm(RT ~ trial_type.tr, data = dat)$coefficients
+```
+
+```{r}
+dat <- dat %>%
+  mutate(
+    trial_type.sum = recode(trial_type, congruent = -1, incongruent =1),
+    trial_type.tr = recode(trial_type, congruent = 0, incongruent =1)
+
+  )
+```
+
+```{r}
+my_lm_e <- lm(RT ~ trial_type.e, data = dat)
+summary(my_lm_e)
+```
+
+```{r}
+my_lm_tr <- lm(RT ~ trial_type.tr, data = dat)
+summary(my_lm_tr)
+```
+
+```{r}
+my_lm_sum <- lm(RT ~ trial_type.sum, data = dat)
+summary(my_lm_sum)
+```
+
+# t.test
+special, limited example of a GLM
+```{r}
+t.test(RT ~ trial_type.e, data = dat, var.equal = TRUE)
+t.test(RT ~ trial_type.sum, data = dat, var.equal = TRUE)
+t.test(RT ~ trial_type.tr, data = dat, var.equal = TRUE)
+```
+
+## ANOVA
+special, limited version of linear model
+```{r}
+my_aov <- aov(RT ~ trial_type.e, data = dat)
+summary(my_aov)
+```
+
+```{r}
+f <- broom::tidy(my_aov)$statistic[1]
+sqrt(f)
+```
+
+```{r}
+two_sample <- function(n = 10, m1 = 0, m2 = 0, sd1 = 1, sd2 = 1) {
+  s1 <- rnorm(n, m1, sd1)
+  s2 <- rnorm(n, m2, sd2)
+  
+  data.frame(
+  Y = c(s1, s2),
+  grp = rep(c("A", "B"), each = n)
+  )
+}
+
+
+```
+
+```{r}
+dat2 <- two_sample(5, -2, +2, 1, 1)
+```
+
+```{r}
+decomp <- dat2 %>%
+  select(Y, grp) %>%
+  mutate(mu = mean(Y)) %>%
+  group_by(grp) %>%
+  mutate(a = mean(Y) - mu) %>%
+  ungroup() %>%
+  mutate(err = Y - mu - a)
+```
+
+```{r}
+SS <- decomp %>%
+  summarise(mu = sum(mu * mu),
+            a = sum(a * a),
+            err = sum(err * err))
+```
+
+```{r}
+SS_Y <- sum(decomp$Y^2)
+all.equal(SS_Y, SS$mu + SS$a + SS$err)
+```
+
+```{r}
+K <- n_distinct(dat2$grp)
+N <- nrow(dat)
+df <- c(mu = 1, a = K -1, err = N - K)
+MS <- SS / df
+
+```
+
+```{r}
+F_mu <- MS$mu / MS$err
+F_a <- MS$a / MS$err
+p_mu <- pf(F_mu, df1 = df['mu'], df2 = df['err'], lower.tail = FALSE)
+p_a <- pf(F_a, df1 = df['a'], df2 = df['err'], lower.tail = FALSE)
+```
+
+```{r}
+my_calcs <- data.frame(
+  term = c("Intercept", "grp", "Residuals"),
+  DF = df,
+  SS = c(SS$mu, SS$a, SS$err),
+  MS = c(MS$mu, MS$a, MS$err),
+  F = c(F_mu, F_a, NA),
+  p = c(p_mu, p_a, NA)
+)
+```
+
+```{r}
+aov(Y ~ grp, data = dat2) %>% summary(intercept = TRUE)
+```
+
